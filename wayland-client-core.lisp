@@ -1,9 +1,5 @@
-#|
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (asdf:oos 'asdf:load-op :cffi))
-|#
 
-(defpackage :wayland-server-core
+(defpackage :wayland-client-core
   (:use :common-lisp :cffi)
   (:export
    wl-array-add
@@ -25,14 +21,17 @@
    wl-display-add-socket
    wl-display-add-socket-auto
    wl-display-add-socket-fd
+   wl-display-connect
    wl-display-create
    wl-display-destroy
    wl-display-flush-clients
    wl-display-get-destroy-listener
    wl-display-get-event-loop
+   wl-display-get-registry
    wl-display-get-serial
    wl-display-init-shm
    wl-display-next-serial
+   wl-display-pointer
    wl-display-run
    wl-display-terminate
    wl-event-loop-add-destroy-listener
@@ -58,6 +57,7 @@
    wl-list-insert-list
    wl-list-length
    wl-list-remove
+   wl-proxy-marshal-constructor
    wl-resource-create
    wl-resource-set-implementation
    wl-resource-set-dispatcher
@@ -99,12 +99,17 @@
    ))
 
 
-(in-package :wayland-server-core)
+(in-package :wayland-client-core)
 
-(define-foreign-library wayland-server
-  (t (:default "libwayland-server")))
+(define-foreign-library wayland-client
+  (t (:default "libwayland-client")))
 
-(use-foreign-library wayland-server)
+(define-foreign-library
+    (os-compatibility :search-path "/home/rett/dev/wayland/ulubis/ulubis/")
+  (t (:default "libos-compatibility")))
+
+(use-foreign-library wayland-client)
+(use-foreign-library os-compatibility)
 
 (defcstruct wl_message
   (name :string)
@@ -346,11 +351,37 @@
 ;; (struct wl_proxy *proxy, uint32_t opcode,
 ;; 			     const struct wl_interface *interface, ...)
 
+
 (defcfun "wl_proxy_marshal_constructor" :pointer
   (proxy :pointer)
   (opcode :uint32)
   (interface :pointer)
   &rest)
+
+;; example of what create pool should look like:
+;; static inline struct wl_shm_pool *
+;; wl_shm_create_pool(struct wl_shm *wl_shm, int32_t fd, int32_t size)
+;; {
+;; 	struct wl_proxy *id;
+
+;; 	id = wl_proxy_marshal_constructor((struct wl_proxy *) wl_shm,
+;; 			 WL_SHM_CREATE_POOL, &wl_shm_pool_interface, NULL, fd, size);
+
+;; 	return (struct wl_shm_pool *) id;
+;; }
+
+;; Opaque structure pointer
+(defctype wl-display-pointer :pointer)
+
+
+;; struct wl_display* wl_display_connect(const char *name);
+(defcfun "wl_display_connect" wl-display-pointer
+  (name :string))
+
+
+(defparameter wl-shm-pool-interface
+  (cffi:foreign-symbol-pointer "wl_shm_pool_interface"))
+
 
 (defcfun "wl_resource_create" :pointer
   (client :pointer)

@@ -8,7 +8,7 @@
   (asdf:oos 'asdf:load-op :split-sequence))
 
 (defpackage :generate-bindings
-  (:use :common-lisp :xmls :split-sequence))
+  (:use :common-lisp :xmls :split-sequence :cffi))
 
 (in-package :generate-bindings)
 
@@ -285,6 +285,7 @@
 	entries))
 
 (defun generate-enums (interface rows)
+  (declare (ignore interface))
   (loop for enum in rows collect
        (let ((name (lisp-name (name enum)))
 	     (fields (mapcar (lambda (entry)
@@ -327,10 +328,26 @@
     `(defun ,func-name (resource ,@func-args)
        (wl-resource-post-event resource ,opcode ,@args-w/types)))))
 
+(defun generate-rpe-client (interface roe opcode)
+  (with-slots (name args) roe
+    (let* ((func-name (lisp-name (name interface) "-SEND-" name))
+	   (func-args (generate-args args nil))
+	   (args-w/types (generate-args args t)))
+    `(defun ,func-name (#:resource ,@func-args)
+       (wayland-client-core:wl-proxy-marshal-constructor
+        #:resource ,opcode ,(name interface)
+        ,@args-w/types)))))
+
 (defun generate-rpes (interface roes)
   (let* ((opcodes (loop :for i :from 0 :to (- (length roes) 1) :collecting i)))
     (mapcar (lambda (roe opcode)
 	      (generate-rpe interface roe opcode))
+	    roes opcodes)))
+
+(defun generate-rpes-alt (interface roes)
+  (let* ((opcodes (loop :for i :from 0 :to (- (length roes) 1) :collecting i)))
+    (mapcar (lambda (roe opcode)
+	      (generate-rpe-client interface roe opcode))
 	    roes opcodes)))
 
 (defun export-interface (interface)
@@ -338,7 +355,16 @@
     (if *generate-interfaces*
 	`((defparameter ,interface-name nil))
 	`((defparameter ,interface-name
-	    (foreign-symbol-pointer ,(concatenate 'string (name interface) "_interface")))))))
+	    (foreign-symbol-pointer ,(concatenate 'string (name interface)
+                                                  "_interface")))))))
+
+(defun export-interface-alt (interface)
+  (let ((interface-name (lisp-name "*" (name interface) "-INTERFACE*")))
+    (if *generate-interfaces*
+	`((defparameter ,interface-name nil))
+	`((defparameter ,interface-name
+	    (foreign-symbol-pointer ,(concatenate 'string (name interface)
+                                                  "_interface")))))))
 
 (defun generate-server-side (interface)
   (append
@@ -349,9 +375,10 @@
 
 (defun generate-client-side (interface)
   (append
-   (export-interface interface)
+   (export-interface-alt interface)
    (generate-implementation interface (events interface))
-   (generate-rpes interface (requests interface))))
+   (generate-rpes-alt interface (requests interface))
+   (generate-enums interface (enums interface))))
 
 (defun generate-server-protocol (interfaces)
   (apply #'append (mapcar #'generate-server-side interfaces)))
@@ -449,12 +476,14 @@
 
 ;;
 
-(defun preamble (package symbols path-to-lib dependencies)
+(defun preamble (package symbols path-to-lib dependencies client?)
   (let ((package-keyword (intern (concatenate 'string
 					      (symbol-name package)
-					      "-PROTOCOL") :keyword)))
+					      "-PROTOCOL") :keyword))
+        (core-package (if client? :wayland-client-core :wayland-server-core)))
     (remove nil `((defpackage ,package-keyword
-		    (:use :common-lisp :cffi :wayland-util :wayland-server-core ,@dependencies)
+		    (:use :common-lisp :cffi :wayland-util ,core-package
+                          ,@dependencies)
 		    (:export
 		     ,@symbols))
 
@@ -485,7 +514,7 @@
 		       (generate-interface-init generate-interfaces? package protocol)))
 	 (symbols (mapcar #'second code)))
     (with-open-file (s (concatenate 'string (string-downcase (symbol-name package)) "-protocol.lisp") :direction :output :if-exists :supersede :if-does-not-exist :create)
-      (loop :for sexp :in (preamble package symbols path-to-lib dependencies)
+      (loop :for sexp :in (preamble package symbols path-to-lib dependencies client?)
 	 :do (format s "~S~%~%" sexp))
       (loop :for sexp :in code
 	 :do (format s "~S~%~%" sexp)))))

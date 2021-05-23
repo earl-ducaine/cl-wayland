@@ -2,14 +2,22 @@
 (defpackage :wayland-util
   (:use :common-lisp :cffi)
   (:export
-   wl-message
-   make-wl-message
-   wl-interface
+   event-count
+   events
    make-wl-interface
-   set-requests
-   set-events
+   make-wl-message
    make-wl-types
-   offset-types))
+   method-count
+   methods
+   name
+   offset-types
+   set-events
+   set-requests
+   signature
+   types
+   version
+   wl-interface
+   wl-message))
 
 (in-package :wayland-util)
 
